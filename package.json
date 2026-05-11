@@ -1,0 +1,21 @@
+{
+  "name": "belajar_vibe_coding",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts",
+    "build": "bun build src/index.ts --outdir dist",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
+  },
+  "dependencies": {
+    "elysia": "latest",
+    "drizzle-orm": "latest",
+    "mysql2": "latest"
+  },
+  "devDependencies": {
+    "drizzle-kit": "latest",
+    "bun-types": "latest"
+  }
+}
