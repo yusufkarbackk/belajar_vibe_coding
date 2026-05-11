@@ -52,3 +52,32 @@ export async function loginUser(input: {
 
   return token;
 }
+
+export async function getCurrentUser(token: string) {
+  const [session] = await db
+    .select({ userId: sessions.userId })
+    .from(sessions)
+    .where(eq(sessions.token, token))
+    .limit(1);
+
+  if (!session) {
+    throw new Error("unauthorized");
+  }
+
+  const [user] = await db
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      created_at: users.createdAt,
+    })
+    .from(users)
+    .where(eq(users.id, session.userId))
+    .limit(1);
+
+  if (!user) {
+    throw new Error("unauthorized");
+  }
+
+  return user;
+}
