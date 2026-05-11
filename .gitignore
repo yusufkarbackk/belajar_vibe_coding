@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+*.local
+
+# Drizzle migrations output (optional, commit if you want migration history)
+# drizzle/
+
+# Bun lockfile (bun.lock is fine to commit)
