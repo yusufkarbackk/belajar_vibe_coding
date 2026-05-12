@@ -1,30 +1,25 @@
-# Issue: API Get Current User
+# Issue: API Logout User
 
 ## Tujuan
-Mengimplementasikan fitur untuk mendapatkan informasi user yang sedang login berdasarkan token bearer yang dikirim di header `Authorization`. Token tersebut dicari di tabel `sessions` dan dipakai untuk lookup user terkait.
+Mengimplementasikan fitur logout user. User mengirim token bearer di header `Authorization`, dan sistem menghapus record `sessions` yang sesuai sehingga token tidak bisa lagi dipakai untuk autentikasi.
 
 ## Spesifikasi
 
-### Endpoint: `GET /api/users/current`
+### Endpoint: `DELETE /api/users/logout`
 
 **Headers:**
 ```
 Authorization: Bearer <token>
 ```
-> `<token>` adalah token UUID yang didapat dari endpoint login (`POST /api/users/login`) dan tersimpan di tabel `sessions`.
+> `<token>` adalah token UUID dari endpoint login (`POST /api/users/login`) yang tersimpan di tabel `sessions`.
 
 **Response sukses (HTTP 200):**
 ```json
 {
-  "data": {
-    "id": 1,
-    "name": "eko",
-    "email": "tes@email.com",
-    "created_at": "2026-05-11T10:00:00.000Z"
-  }
+  "data": "ok"
 }
 ```
-> Tidak ada field `password` di response — wajib tidak boleh bocor.
+> Record di tabel `sessions` dengan `token` tersebut WAJIB sudah terhapus.
 
 **Response error — token tidak valid / tidak ada (HTTP 401):**
 ```json
@@ -39,55 +34,54 @@ Authorization: Bearer <token>
 
 ## Struktur Folder & File
 Tetap menggunakan struktur yang sudah ada:
-- `src/routes/user-routes.ts` — tambahkan route `GET /users/current` di sini.
-- `src/services/user-service.ts` — tambahkan fungsi `getCurrentUser` di service yang sudah ada.
+- `src/routes/user-routes.ts` — tambahkan route `DELETE /users/logout`.
+- `src/services/user-service.ts` — tambahkan fungsi `logoutUser`.
 
 ## Tahapan Implementasi
 
-### 1. Tambah Fungsi `getCurrentUser` di Service Layer
+### 1. Tambah Fungsi `logoutUser` di Service Layer
 Edit `src/services/user-service.ts`, tambahkan fungsi baru:
-- Signature: `getCurrentUser(token: string): Promise<{ id: number; name: string; email: string; created_at: Date }>`.
+- Signature: `logoutUser(token: string): Promise<void>`.
 - Langkah di dalam fungsi:
-  1. Cari record di tabel `sessions` berdasarkan `token`. Lakukan JOIN dengan `users` ATAU dua query terpisah (cari session dulu, lalu cari user berdasarkan `session.userId`).
-  2. Jika session tidak ditemukan → throw error `unauthorized`.
-  3. Jika user tidak ditemukan (edge case: session orphan) → throw error `unauthorized`.
-  4. Return object berisi `id`, `name`, `email`, dan `created_at` dari user.
-     - **Jangan** return field `password`.
-     - Field response menggunakan snake_case `created_at` (mapping dari kolom `createdAt` di schema Drizzle).
+  1. Cek apakah ada record di tabel `sessions` dengan `token` tersebut.
+  2. Jika tidak ada → throw error `unauthorized`.
+  3. Jika ada → `DELETE FROM sessions WHERE token = ?` menggunakan Drizzle (`db.delete(sessions).where(eq(sessions.token, token))`).
+  4. Tidak perlu return apa-apa.
 
-### 2. Tambah Route `GET /users/current`
-Edit `src/routes/user-routes.ts`, tambahkan endpoint baru di Elysia instance yang sudah ada:
-- Path: `GET /users/current` (full path: `/api/users/current`).
-- Ambil header `Authorization`. Cara di Elysia: gunakan parameter `headers` di handler, lalu ambil `headers.authorization`.
-- Parsing token:
-  1. Jika header tidak ada → return 401 + `{ error: "unauthorized" }`.
-  2. Jika header tidak diawali `Bearer ` (case-sensitive cukup `Bearer ` dengan satu spasi) → return 401 + `{ error: "unauthorized" }`.
+> Alternatif: langsung jalankan `delete` dan cek `affectedRows` / hasil delete. Jika tidak ada baris yang terhapus → throw `unauthorized`. Pilih pendekatan mana saja yang lebih clean.
+
+### 2. Tambah Route `DELETE /users/logout`
+Edit `src/routes/user-routes.ts`, chain method baru di Elysia instance yang sudah ada:
+- Path: `DELETE /users/logout` (full path: `/api/users/logout`).
+- Ambil header `Authorization` dari parameter `headers` di handler Elysia.
+- Parsing token (sama persis dengan route `GET /users/current` yang sudah ada):
+  1. Jika header tidak ada → 401 + `{ error: "unauthorized" }`.
+  2. Jika tidak diawali `Bearer ` → 401 + `{ error: "unauthorized" }`.
   3. Ambil token: bagian setelah `Bearer `.
-- Panggil `getCurrentUser(token)` dari service.
+- Panggil `logoutUser(token)` di dalam try-catch.
 - Mapping hasil:
-  - Sukses → `{ data: user }` dengan status 200.
-  - Error → `{ error: "unauthorized" }` dengan status 401.
-
-> Gunakan try-catch agar error dari service ditangkap dan diterjemahkan ke response 401 dengan message yang seragam (`unauthorized`).
+  - Sukses → `{ data: "ok" }` dengan status 200.
+  - Error apapun → `{ error: "unauthorized" }` dengan status 401.
 
 ### 3. Manual Test
 - Jalankan `bun run dev`.
 - Test menggunakan REST client:
   1. Registrasi → login → dapatkan token.
-  2. `GET /api/users/current` dengan header `Authorization: Bearer <token>` yang valid → harus return data user (tanpa password).
-  3. `GET /api/users/current` tanpa header `Authorization` → harus return 401 + `{ "error": "unauthorized" }`.
-  4. `GET /api/users/current` dengan token random / tidak valid → harus return 401 + error yang sama.
-  5. `GET /api/users/current` dengan format header salah (misal `Authorization: <token>` tanpa `Bearer`) → harus return 401.
+  2. `DELETE /api/users/logout` dengan header `Authorization: Bearer <token>` yang valid → harus return `{ "data": "ok" }`, dan record di `sessions` terhapus.
+  3. `DELETE /api/users/logout` dengan token yang sama (setelah logout) → harus return 401 (karena sudah terhapus).
+  4. `DELETE /api/users/logout` tanpa header `Authorization` → 401.
+  5. `DELETE /api/users/logout` dengan format header salah → 401.
+  6. `DELETE /api/users/logout` dengan token random / tidak valid → 401.
+- Cek di database setelah logout sukses: pastikan baris `sessions` yang bersangkutan benar-benar hilang.
 
 ## Acceptance Criteria
-- Endpoint `GET /api/users/current` bekerja sesuai contoh request/response.
-- Response sukses hanya berisi `id`, `name`, `email`, `created_at` — TIDAK ADA `password`.
+- Endpoint `DELETE /api/users/logout` bekerja sesuai contoh request/response.
+- Setelah sukses logout, record `sessions` dengan `token` tersebut WAJIB sudah terhapus dari database.
 - Semua skenario gagal (header tidak ada, format salah, token tidak valid) menghasilkan response yang sama persis: status 401 + `{ "error": "unauthorized" }`.
 - Tidak ada query DB di route layer — semua query DB di service.
 
 ## Catatan untuk Implementer
-- Reuse instance Elysia `userRoutes` yang sudah ada — chain method baru, jangan buat instance baru.
-- Reuse `db`, schema `users` dan `sessions` yang sudah ada — jangan duplikasi.
-- Hati-hati saat select kolom dari `users`: jangan select kolom `password`. Bisa pakai `.select({ id, name, email, createdAt })` di Drizzle untuk explicit.
-- Tabel `sessions` sudah ada (dibuat di issue sebelumnya) — tidak perlu migration baru untuk fitur ini.
-- Belum perlu cek expiry session, refresh token, atau invalidate — fokus saja ke get current user.
+- Reuse instance Elysia `userRoutes` yang sudah ada — chain `.delete(...)` baru, jangan buat instance baru.
+- Reuse `db`, schema `sessions` yang sudah ada — jangan duplikasi.
+- Parsing `Authorization` header sudah ada di route `GET /users/current` — boleh pakai pendekatan yang sama (copy-paste 3 baris parsing tidak masalah; baru bikin helper kalau pattern ini dipakai 3x atau lebih).
+- Belum perlu invalidate semua session user lain, audit log, atau response body kompleks — fokus saja ke hapus session berdasarkan token yang diberikan.
